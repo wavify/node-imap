@@ -4,7 +4,7 @@ Description
 node-imap is an IMAP module for [node.js](http://nodejs.org/) that provides an asynchronous interface for communicating with an IMAP mail server.
 
 This module does not perform any magic such as auto-decoding of messages/attachments or parsing of email addresses (node-imap leaves all mail header values as-is).
-If you are in need of this kind of extra functionality, check out andris9's [mimelib](https://github.com/andris9/mimelib) module. Also check out his [mailparser](http://github.com/andris9/mailparser) module, which comes in handy after you fetch() a 'full' raw email message with this module.
+If you are in need of this kind of extra functionality, check out andris9's [mimelib](https://github.com/andris9/mimelib) module. Also check out his [mailparser](http://github.com/andris9/mailparser) module, which comes in handy after you fetch() a raw email message with this module.
 
 
 Requirements
@@ -22,14 +22,13 @@ Installation
 Example
 =======
 
-* This example fetches the 'date', 'from', 'to', 'subject' message headers and the message structure of all unread messages in the Inbox since May 20, 2010:
+* Fetch the 'date', 'from', 'to', 'subject' message headers and the message structure of all unread messages in the Inbox since May 20, 2010:
 
 ```javascript
-  var util = require('util'),
-      ImapConnection = require('imap').ImapConnection;
+  var Imap = require('imap');
       
-  var imap = new ImapConnection({
-        username: 'mygmailname@gmail.com',
+  var imap = new Imap({
+        user: 'mygmailname@gmail.com',
         password: 'mygmailpassword',
         host: 'imap.gmail.com',
         port: 993,
@@ -48,7 +47,7 @@ Example
   function openInbox(cb) {
     imap.connect(function(err) {
       if (err) die(err);
-      imap.openBox('INBOX', false, cb);
+      imap.openBox('INBOX', true, cb);
     });
   }
 
@@ -56,99 +55,68 @@ Example
     if (err) die(err);
     imap.search([ 'UNSEEN', ['SINCE', 'May 20, 2010'] ], function(err, results) {
       if (err) die(err);
-      var fetch = imap.fetch(results, {
-        request: {
-          headers: ['from', 'to', 'subject', 'date']
+      imap.fetch(results,
+        { headers: ['from', 'to', 'subject', 'date'],
+          cb: function(fetch) {
+            fetch.on('message', function(msg) {
+              console.log('Saw message no. ' + msg.seqno);
+              msg.on('headers', function(hdrs) {
+                console.log('Headers for no. ' + msg.seqno + ': ' + show(hdrs));
+              });
+              msg.on('end', function() {
+                console.log('Finished message no. ' + msg.seqno);
+              });
+            });
+          }
+        }, function(err) {
+          if (err) throw err;
+          console.log('Done fetching all messages!');
+          imap.logout();
         }
-      });
-      fetch.on('message', function(msg) {
-        console.log('Got a message with sequence number ' + msg.seqno);
-        msg.on('end', function() {
-          // msg.headers is now an object containing the requested headers ...
-          console.log('Finished message. Headers ' + show(msg.headers));
-        });
-      });
-      fetch.on('end', function() {
-        console.log('Done fetching all messages!');
-        imap.logout();
-      });
+      );
     });
   });
 ```
 
-* Here is a modified version of the first example that retrieves the 'from' header and buffers the entire body of the newest message:
+* Retrieve the 'from' header and buffer the entire body of the newest message:
 
 ```javascript
   // using the functions and variables already defined in the first example ...
 
   openInbox(function(err, mailbox) {
     if (err) die(err);
-    var fetch = imap.seq.fetch(mailbox.messages.total + ':*',
-                               { request: {
-                                   headers: ['from'],
-                                   body: true,
-                                   struct: false } });
-    fetch.on('message', function(msg) {
-      console.log('Got a message with sequence number ' + msg.seqno);
-      var body = '';
-      msg.on('data', function(chunk) {
-        body += chunk.toString('utf8');
-      });
-      msg.on('end', function() {
-        // msg.headers is now an object containing the requested header(s) ...
-        console.log('Finished message.');
-        console.log('UID: ' + msg.uid);
-        console.log('Flags: ' + msg.flags);
-        console.log('Date: ' + msg.date);
-        console.log('From: ' + msg.headers.from[0]);
-        console.log('Body: ' + body);
-      });
-    });
-    fetch.on('end', function() {
-      console.log('Done fetching all messages!');
-      imap.logout();
-    });
-  });
-```
-
-* Here is a modified version of the first example that retrieves all (parsed) headers and writes the entire body of each message to a file:
-
-```javascript
-  // using the functions and variables already defined in the first example ...
-
-  var fs = require('fs'), fileStream;
-
-  openInbox(function(err, mailbox) {
-    if (err) die(err);
-    imap.search([ 'UNSEEN', ['SINCE', 'May 20, 2010'] ], function(err, results) {
-      if (err) die(err);
-      var fetch = imap.fetch(results, {
-        request: {
-          headers: true,
-          body: true
+    imap.seq.fetch(mailbox.messages.total + ':*', { struct: false },
+      { headers: 'from',
+        body: true,
+        cb: function(fetch) {
+          fetch.on('message', function(msg) {
+            console.log('Saw message no. ' + msg.seqno);
+            var body = '';
+            msg.on('headers', function(hdrs) {
+              console.log('Headers for no. ' + msg.seqno + ': ' + show(hdrs));
+            });
+            msg.on('data', function(chunk) {
+              body += chunk.toString('utf8');
+            });
+            msg.on('end', function() {
+              console.log('Finished message no. ' + msg.seqno);
+              console.log('UID: ' + msg.uid);
+              console.log('Flags: ' + msg.flags);
+              console.log('Date: ' + msg.date);
+              console.log('Body: ' + show(body));
+            });
+          });
         }
-      });
-      fetch.on('message', function(msg) {
-        console.log('Got a message with sequence number ' + msg.seqno);
-        fileStream = fs.createWriteStream('msg-' + msg.seqno + '-body.txt');
-        msg.on('data', function(chunk) {
-          fileStream.write(chunk);
-        });
-        msg.on('end', function() {
-          fileStream.end();
-          // msg.headers is now an object containing the requested headers ...
-          console.log('Finished message. Headers: ' + show(msg.headers));
-        });
-      });
-      fetch.on('end', function() {
+      }, function(err) {
+        if (err) throw err;
         console.log('Done fetching all messages!');
         imap.logout();
-      });
-    });
+      }
+    );
   });
 ```
 
-* Here is a modified version of the first example that retrieves and writes entire raw messages to files (no parsed headers):
+* Save raw unread emails since May 20, 2010 to files:
 
 ```javascript
   // using the functions and variables already defined in the first example ...
@@ -159,26 +127,25 @@ Example
     if (err) die(err);
     imap.search([ 'UNSEEN', ['SINCE', 'May 20, 2010'] ], function(err, results) {
       if (err) die(err);
-      var fetch = imap.fetch(results, {
-        request: {
-          headers: false,
-          body: 'full'
+      imap.fetch(results,
+        { headers: { parse: false },
+          body: true,
+          cb: function(fetch) {
+            fetch.on('message', function(msg) {
+              console.log('Got a message with sequence number ' + msg.seqno);
+              fileStream = fs.createWriteStream('msg-' + msg.seqno + '-body.txt');
+              msg.on('data', function(chunk) {
+                fileStream.write(chunk);
+              });
+              msg.on('end', function() {
+                fileStream.end();
+                console.log('Finished message no. ' + msg.seqno);
+              });
+            });
+          }
+        }, function(err) {
         }
-      });
-      fetch.on('message', function(msg) {
-        console.log('Got a message with sequence number ' + msg.seqno);
-        fileStream = fs.createWriteStream('msg-' + msg.seqno + '-raw.txt');
-        msg.on('data', function(chunk) {
-          fileStream.write(chunk);
-        });
-        msg.on('end', function() {
-          fileStream.end();
-        });
-      });
-      fetch.on('end', function() {
-        console.log('Done fetching all messages!');
-        imap.logout();
-      });
+      );
     });
   });
 ```
@@ -194,6 +161,7 @@ node-imap exposes one object: **ImapConnection**.
 
 * _Box_ is an object representing the currently open mailbox, and has the following properties:
     * **name** - < _string_ > - The name of this mailbox.
+    * **displayName** - < _string_ > - The UTF-7-decoded name of this mailbox.
     * **readOnly** - < _boolean_ > - True if this mailbox was opened in read-only mode.
     * **uidvalidity** - < _integer_ > - A 32-bit number that can be used to determine if UIDs in this mailbox have changed since the last time this mailbox was opened. It is possible for this to change during a session, in which case a 'uidvalidity' event will be emitted on the ImapConnection instance.
     * **uidnext** - < _integer_ > - The uid that will be assigned to the next message that arrives at this mailbox.
@@ -208,74 +176,74 @@ node-imap exposes one object: **ImapConnection**.
         * **uid** - < _integer_ > - A 32-bit ID that uniquely identifies this message within its mailbox.
         * **flags** - < _array_ > - A list of flags currently set on this message.
         * **date** - < _string_ > - The internal server date for the message (always represented in GMT?)
-        * **headers** - < _object_ > - The headers of the message (header => values), **if headers were requested when calling fetch().** Note: Header values are always arrays for consistency.
-        * **structure** - < _array_ > - The structure of the message, **if the structure was requested when calling fetch().** See below for an explanation of the format of this property.
+        * **structure** - < _array_ > - The structure of the message, **if the structure was requested with fetch().** See below for an explanation of the format of this property.
+        * **size** - < _integer_ > - The RFC822 message size, **if the size was requesting with fetch().**
     * Events:
-        * **data**(< _Buffer_ >chunk) - Emitted for each message body chunk if a message body is being fetched
-        * **end**() - Emitted when the fetch is complete for this message and its properties
+        * **headers**(< _mixed_ >headers) - Emitted when headers are fetched. This is an _object_ unless 'parse' is set to false when requesting headers, in which case it will be a _Buffer_. Note: if you request a full raw message (all headers and entire body), only 'data' events will be emitted.
+        * **data**(< _Buffer_ >chunk) - Emitted for each message body chunk if a message body is being fetched.
+        * **end**() - Emitted when the fetch is complete for this message.
 * _ImapFetch_ is an object that emits these events:
     * **message**(< _ImapMessage_ >msg) - Emitted for each message resulting from a fetch request
-    * **end**() - Emitted when the fetch request is complete
 
 A message structure with multiple parts might look something like the following:
 
 ```javascript
-  [ { type: 'mixed'
-    , params: { boundary: '000e0cd294e80dc84c0475bf339d' }
-    , disposition: null
-    , language: null
-    , location: null
-    }
-  , [ { type: 'alternative'
-      , params: { boundary: '000e0cd294e80dc83c0475bf339b' }
-      , disposition: null
-      , language: null
-      }
-    , [ { partID: '1.1'
-        , type: 'text'
-        , subtype: 'plain'
-        , params: { charset: 'ISO-8859-1' }
-        , id: null
-        , description: null
-        , encoding: '7BIT'
-        , size: 935
-        , lines: 46
-        , md5: null
-        , disposition: null
-        , language: null
+  [ { type: 'mixed',
+      params: { boundary: '000e0cd294e80dc84c0475bf339d' },
+      disposition: null,
+      language: null,
+      location: null
+    },
+    [ { type: 'alternative',
+        params: { boundary: '000e0cd294e80dc83c0475bf339b' },
+        disposition: null,
+        language: null
+      },
+      [ { partID: '1.1',
+          type: 'text',
+          subtype: 'plain',
+          params: { charset: 'ISO-8859-1' },
+          id: null,
+          description: null,
+          encoding: '7BIT',
+          size: 935,
+          lines: 46,
+          md5: null,
+          disposition: null,
+          language: null
+        }
+      ],
+      [ { partID: '1.2',
+          type: 'text',
+          subtype: 'html',
+          params: { charset: 'ISO-8859-1' },
+          id: null,
+          description: null,
+          encoding: 'QUOTED-PRINTABLE',
+          size: 1962,
+          lines: 33,
+          md5: null,
+          disposition: null,
+          language: null
         }
       ]
-    , [ { partID: '1.2'
-        , type: 'text'
-        , subtype: 'html'
-        , params: { charset: 'ISO-8859-1' }
-        , id: null
-        , description: null
-        , encoding: 'QUOTED-PRINTABLE'
-        , size: 1962
-        , lines: 33
-        , md5: null
-        , disposition: null
-        , language: null
-        }
-      ]
-    ]
-  , [ { partID: '2'
-      , type: 'application'
-      , subtype: 'octet-stream'
-      , params: { name: 'somefile' }
-      , id: null
-      , description: null
-      , encoding: 'BASE64'
-      , size: 98
-      , lines: null
-      , md5: null
-      , disposition:
-         { type: 'attachment'
-         , params: { filename: 'somefile' }
-         }
-      , language: null
-      , location: null
+    ],
+    [ { partID: '2',
+        type: 'application',
+        subtype: 'octet-stream',
+        params: { name: 'somefile' },
+        id: null,
+        description: null,
+        encoding: 'BASE64',
+        size: 98,
+        lines: null,
+        md5: null,
+        disposition:
+         { type: 'attachment',
+           params: { filename: 'somefile' }
+         },
+        language: null,
+        location: null
       }
     ]
   ]
@@ -287,18 +255,18 @@ Each message part is identified by a partID which is used when you want to fetch
 The structure of a message with only one part will simply look something like this:
 
 ```javascript
-  [ { partID: '1'
-      , type: 'text'
-      , subtype: 'plain'
-      , params: { charset: 'ISO-8859-1' }
-      , id: null
-      , description: null
-      , encoding: '7BIT'
-      , size: 935
-      , lines: 46
-      , md5: null
-      , disposition: null
-      , language: null
+  [ { partID: '1',
+      type: 'text',
+      subtype: 'plain',
+      params: { charset: 'ISO-8859-1' },
+      id: null,
+      description: null,
+      encoding: '7BIT',
+      size: 935,
+      lines: 46,
+      md5: null,
+      disposition: null,
+      language: null
     }
   ]
 ```
@@ -355,15 +323,15 @@ ImapConnection Properties
    There should always be at least one entry (although the IMAP spec allows for more, it doesn't seem to be very common) in the personal namespace list, with a blank namespace prefix. Each property's array contains objects of the following format (with example values):
 
 ```javascript
-  { prefix: '' // A string containing the prefix to use to access mailboxes in this namespace
-  , delimiter: '/' // A string containing the hierarchy delimiter for this namespace, or boolean false
-              //  for a flat namespace with no hierarchy
-  , extensions: [ // An array of namespace extensions supported by this namespace, or null if none
+  { prefix: '', // A string containing the prefix to use to access mailboxes in this namespace
+    delimiter: '/', // A string containing the hierarchy delimiter for this namespace, or boolean false
+                    //  for a flat namespace with no hierarchy
+    extensions: [ // An array of namespace extensions supported by this namespace, or null if none
                   // are specified
-        { name: 'X-FOO-BAR' // A string indicating the extension name
-        , params: [ 'BAZ' ] // An array of strings containing the parameters for this extension,
-                            // or null if none are specified
-        }
+      { name: 'X-FOO-BAR', // A string indicating the extension name
+        params: [ 'BAZ' ] // An array of strings containing the parameters for this extension,
+                          // or null if none are specified
+      }
     ]
   }
 ```
@@ -376,7 +344,7 @@ ImapConnection Functions
 
 * **(constructor)**([< _object_ >config]) - _ImapConnection_ - Creates and returns a new instance of _ImapConnection_ using the specified configuration object. Valid config properties are:
 
-    * **username** - < _string_ > - Username for plain-text authentication.
+    * **user** - < _string_ > - Username for plain-text authentication.
 
     * **password** - < _string_ > - Password for plain-text authentication.
 
@@ -414,61 +382,62 @@ ImapConnection Functions
 
 ```javascript
   { INBOX: // mailbox name
-     { attribs: [] // mailbox attributes. An attribute of 'NOSELECT' indicates the mailbox cannot
-                   // be opened
-     , delimiter: '/' // hierarchy delimiter for accessing this mailbox's direct children.
-     , children: null // an object containing another structure similar in format to this top level,
+     { attribs: [], // mailbox attributes. An attribute of 'NOSELECT' indicates the mailbox cannot
+                    // be opened
+       displayName: 'INBOX', // UTF-7-decoded version of the mailbox name
+       delimiter: '/', // hierarchy delimiter for accessing this mailbox's direct children.
+       children: null, // an object containing another structure similar in format to this top level,
                       // otherwise null if no children
-     , parent: null // pointer to parent mailbox, null if at the top level
-     }
-  , Work:
-     { attribs: []
-     , delimiter: '/'
-     , children: null
-     , parent: null
-     }
-  , '[Gmail]':
-     { attribs: [ 'NOSELECT' ]
-     , delimiter: '/'
-     , children:
+       parent: null // pointer to parent mailbox, null if at the top level
+     },
+    Work:
+     { attribs: [],
+       delimiter: '/',
+       children: null,
+       parent: null
+     },
+    '[Gmail]':
+     { attribs: [ 'NOSELECT' ],
+       delimiter: '/',
+       children:
         { 'All Mail':
-           { attribs: []
-           , delimiter: '/'
-           , children: null
-           , parent: [Circular]
+           { attribs: [],
+             delimiter: '/',
+             children: null,
+             parent: [Circular]
+           },
+          Drafts:
+           { attribs: [],
+             delimiter: '/',
+             children: null,
+             parent: [Circular]
+           },
+          'Sent Mail':
+           { attribs: [],
+             delimiter: '/',
+             children: null,
+             parent: [Circular]
+           },
+          Spam:
+           { attribs: [],
+             delimiter: '/',
+             children: null,
+             parent: [Circular]
+           },
+          Starred:
+           { attribs: [],
+             delimiter: '/',
+             children: null,
+             parent: [Circular]
+           },
+          Trash:
+           { attribs: [],
+             delimiter: '/',
+             children: null,
+             parent: [Circular]
            }
-        , Drafts:
-           { attribs: []
-           , delimiter: '/'
-           , children: null
-           , parent: [Circular]
-           }
-        , 'Sent Mail':
-           { attribs: []
-           , delimiter: '/'
-           , children: null
-           , parent: [Circular]
-           }
-        , Spam:
-           { attribs: []
-           , delimiter: '/'
-           , children: null
-           , parent: [Circular]
-           }
-        , Starred:
-           { attribs: []
-           , delimiter: '/'
-           , children: null
-           , parent: [Circular]
-           }
-        , Trash:
-           { attribs: []
-           , delimiter: '/'
-           , children: null
-           , parent: [Circular]
-           }
-        }
-     , parent: null
+        },
+       parent: null
      }
   }
 ```
@@ -579,17 +548,37 @@ ImapConnection Functions
     
   The callback has two parameters: the error (falsey if none), and an array containing the message UIDs matching the search criteria.
 
-* **fetch**(< _mixed_ >source, < _object_ >options) - _ImapFetch_ - Fetches message(s) in the currently open mailbox. source can be a message UID, a message UID range (e.g. '2504:2507' or '\*' or '2504:\*'), or an array of message UIDs and/or message UID ranges. Note: currently you can only fetch headers AND a body when `body` is set to true (partID and byte ranges not supported yet when also requesting headers). Valid options are:
+* **fetch**(< _mixed_ >source, [< _object_ >options, ] < _mixed_ >request, < _function_ >callback) - _(void)_ - Fetches message(s) in the currently open mailbox. `source` can be a message UID, a message UID range (e.g. '2504:2507' or '\*' or '2504:\*'), or an array of message UIDs and/or message UID ranges.
 
-    * **markSeen** - < _boolean_ > - Mark message(s) as read when fetched. **Default:** false
+Valid `options` are:
 
-    * **request** - < _object_ > - What to fetch. Valid options are:
+  * **markSeen** - < _boolean_ > - Mark message(s) as read when fetched. **Default:** false
 
-        * **struct** - < _boolean_ > - Fetch the message structure. **Default:** true
+  * **struct** - < _boolean_ > - Fetch the message structure. **Default:** false
 
-        * **headers** - < _mixed_ > - Boolean true fetches all message headers and an array of header names retrieves only those headers. **Default:** true
+  * **size** - < _boolean_ > - Fetch the RFC822 size. **Default:** false
 
-        * **body** - < _mixed_ > - Boolean true fetches the entire raw message body. A string containing a valid partID (see _FetchResult_'s structure property) fetches the entire body of that particular part. The string 'full' fetches the entire (unparsed) email message, including the headers. An array can be given to specify a byte range of the content, where the first value is boolean true or a partID and the second value is the byte range. For example, to fetch the first 500 bytes: '0-500'. **Default:** false
+`request` is an _object_ or an _array_ of _object_ with the following valid properties:
+
+  * **id** - < _mixed_ > - _integer_ or _string_ referencing a message part to use when retrieving headers and/or a body. **Default:** (root part/entire message)
+
+  * **headers** - < _mixed_ > - An _array_ of specific headers to retrieve, a _string_ containing a single header to retrieve, _boolean_ true to fetch all headers, or an _object_ of the form (**Default:** (no headers)):
+
+      * **fields** - < _mixed_ > - An _array_ of specific headers to retrieve or _boolean_ true to fetch all headers. **Default:** (all headers)
+
+      * **parse** - < _boolean_ > - Parse headers? **Default:** true
+
+  * **headersNot** - < _mixed_ > - An _array_ of specific headers to exclude, a _string_ containing a single header to exclude, or an _object_ of the form (**Default:** (no headers)):
+
+      * **fields** - < _mixed_ > - An _array_ of specific headers to exclude. **Default:** (all headers)
+
+      * **parse** - < _boolean_ > - Parse headers? **Default:** true
+
+  * **body** - < _boolean_ > - _boolean_ true to fetch the body
+
+  * **cb** - < _function_ > - A callback that is passed an _ImapFetch_ object.
+
+`callback` has one parameter: < _Error_ >err. This is executed when all message retrievals are complete.
 
 * **copy**(< _mixed_ >source, < _string_ >mailboxName, < _function_ >callback) - _(void)_ - Copies message(s) in the currently open mailbox to another mailbox. source can be a message UID, a message UID range (e.g. '2504:2507' or '\*' or '2504:\*'), or an array of message UIDs and/or message UID ranges. The callback has one parameter: the error (falsey if none).
 
@@ -621,7 +610,7 @@ Extensions Supported
 
         * X-GM-LABELS: string value which allows you to search for specific messages that have the given label applied
 
-    * fetch() will automatically retrieve the thread id, unique message id, and labels with the message properties being 'x-gm-thrid', 'x-gm-msgid', 'x-gm-labels' respectively
+    * fetch() will automatically retrieve the thread id, unique message id, and labels (named 'x-gm-thrid', 'x-gm-msgid', 'x-gm-labels' respectively) and they will be stored on the _ImapMessage_ object itself
 
     * Additional ImapConnection functions
 
@@ -661,7 +650,6 @@ Several things not yet implemented in no particular order:
 
 * Support STARTTLS
 * Support AUTH=CRAM-MD5/AUTH=CRAM_MD5 authentication
-* Multipart parsing capabilities?
 * Support additional IMAP commands/extensions:
   * NOTIFY (via NOTIFY extension -- http://tools.ietf.org/html/rfc5465)
   * STATUS addition to LIST (via LIST-STATUS extension -- http://tools.ietf.org/html/rfc5819)
