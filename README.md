@@ -1,16 +1,16 @@
 Description
 ===========
 
-node-imap is an IMAP module for [node.js](http://nodejs.org/) that provides an asynchronous interface for communicating with an IMAP mail server.
+node-imap is an IMAP client module for [node.js](http://nodejs.org/).
 
 This module does not perform any magic such as auto-decoding of messages/attachments or parsing of email addresses (node-imap leaves all mail header values as-is).
-If you are in need of this kind of extra functionality, check out andris9's [mimelib](https://github.com/andris9/mimelib) module. Also check out his [mailparser](http://github.com/andris9/mailparser) module, which comes in handy after you fetch() a raw email message with this module.
+If you are in need of this kind of extra functionality, check out andris9's [mimelib](https://github.com/andris9/mimelib) module. Also check out his [mailparser](http://github.com/andris9/mailparser) module, which comes in handy after you fetch() a raw email message with this module and wish to parse it manually.
 
 
 Requirements
 ============
 
-* [node.js](http://nodejs.org/) -- v0.4.0 or newer
+* [node.js](http://nodejs.org/) -- v0.6.0 or newer
 * An IMAP server -- tested with gmail
 
 
@@ -25,85 +25,47 @@ Example
 * Fetch the 'date', 'from', 'to', 'subject' message headers and the message structure of all unread messages in the Inbox since May 20, 2010:
 
 ```javascript
-  var Imap = require('imap');
-      
-  var imap = new Imap({
-        user: 'mygmailname@gmail.com',
-        password: 'mygmailpassword',
-        host: 'imap.gmail.com',
-        port: 993,
-        secure: true
-      });
-
-  function show(obj) {
-    return util.inspect(obj, false, Infinity);
-  }
-
-  function die(err) {
-    console.log('Uh oh: ' + err);
-    process.exit(1);
-  }
-
-  function openInbox(cb) {
-    imap.connect(function(err) {
-      if (err) die(err);
-      imap.openBox('INBOX', true, cb);
+var Imap = require('imap'),
+    inspect = require('util').inspect;
+    
+var imap = new Imap({
+      user: 'mygmailname@gmail.com',
+      password: 'mygmailpassword',
+      host: 'imap.gmail.com',
+      port: 993,
+      secure: true
     });
-  }
 
-  openInbox(function(err, mailbox) {
+function show(obj) {
+  return inspect(obj, false, Infinity);
+}
+
+function die(err) {
+  console.log('Uh oh: ' + err);
+  process.exit(1);
+}
+
+function openInbox(cb) {
+  imap.connect(function(err) {
     if (err) die(err);
-    imap.search([ 'UNSEEN', ['SINCE', 'May 20, 2010'] ], function(err, results) {
-      if (err) die(err);
-      imap.fetch(results,
-        { headers: ['from', 'to', 'subject', 'date'],
-          cb: function(fetch) {
-            fetch.on('message', function(msg) {
-              console.log('Saw message no. ' + msg.seqno);
-              msg.on('headers', function(hdrs) {
-                console.log('Headers for no. ' + msg.seqno + ': ' + show(hdrs));
-              });
-              msg.on('end', function() {
-                console.log('Finished message no. ' + msg.seqno);
-              });
-            });
-          }
-        }, function(err) {
-          if (err) throw err;
-          console.log('Done fetching all messages!');
-          imap.logout();
-        }
-      );
-    });
+    imap.openBox('INBOX', true, cb);
   });
-```
+}
 
-* Retrieve the 'from' header and buffer the entire body of the newest message:
-
-```javascript
-  // using the functions and variables already defined in the first example ...
-
-  openInbox(function(err, mailbox) {
+openInbox(function(err, mailbox) {
+  if (err) die(err);
+  imap.search([ 'UNSEEN', ['SINCE', 'May 20, 2010'] ], function(err, results) {
     if (err) die(err);
-    imap.seq.fetch(mailbox.messages.total + ':*', { struct: false },
-      { headers: 'from',
-        body: true,
+    imap.fetch(results,
+      { headers: ['from', 'to', 'subject', 'date'],
         cb: function(fetch) {
           fetch.on('message', function(msg) {
             console.log('Saw message no. ' + msg.seqno);
-            var body = '';
             msg.on('headers', function(hdrs) {
               console.log('Headers for no. ' + msg.seqno + ': ' + show(hdrs));
             });
-            msg.on('data', function(chunk) {
-              body += chunk.toString('utf8');
-            });
             msg.on('end', function() {
               console.log('Finished message no. ' + msg.seqno);
-              console.log('UID: ' + msg.uid);
-              console.log('Flags: ' + msg.flags);
-              console.log('Date: ' + msg.date);
-              console.log('Body: ' + show(body));
             });
           });
         }
@@ -114,47 +76,86 @@ Example
       }
     );
   });
+});
+```
+
+* Retrieve the 'from' header and buffer the entire body of the newest message:
+
+```javascript
+// using the functions and variables already defined in the first example ...
+
+openInbox(function(err, mailbox) {
+  if (err) die(err);
+  imap.seq.fetch(mailbox.messages.total + ':*', { struct: false },
+    { headers: 'from',
+      body: true,
+      cb: function(fetch) {
+        fetch.on('message', function(msg) {
+          console.log('Saw message no. ' + msg.seqno);
+          var body = '';
+          msg.on('headers', function(hdrs) {
+            console.log('Headers for no. ' + msg.seqno + ': ' + show(hdrs));
+          });
+          msg.on('data', function(chunk) {
+            body += chunk.toString('utf8');
+          });
+          msg.on('end', function() {
+            console.log('Finished message no. ' + msg.seqno);
+            console.log('UID: ' + msg.uid);
+            console.log('Flags: ' + msg.flags);
+            console.log('Date: ' + msg.date);
+            console.log('Body: ' + show(body));
+          });
+        });
+      }
+    }, function(err) {
+      if (err) throw err;
+      console.log('Done fetching all messages!');
+      imap.logout();
+    }
+  );
+});
 ```
 
 * Save raw unread emails since May 20, 2010 to files:
 
 ```javascript
-  // using the functions and variables already defined in the first example ...
+// using the functions and variables already defined in the first example ...
 
-  var fs = require('fs'), fileStream;
+var fs = require('fs'), fileStream;
 
-  openInbox(function(err, mailbox) {
+openInbox(function(err, mailbox) {
+  if (err) die(err);
+  imap.search([ 'UNSEEN', ['SINCE', 'May 20, 2010'] ], function(err, results) {
     if (err) die(err);
-    imap.search([ 'UNSEEN', ['SINCE', 'May 20, 2010'] ], function(err, results) {
-      if (err) die(err);
-      imap.fetch(results,
-        { headers: { parse: false },
-          body: true,
-          cb: function(fetch) {
-            fetch.on('message', function(msg) {
-              console.log('Got a message with sequence number ' + msg.seqno);
-              fileStream = fs.createWriteStream('msg-' + msg.seqno + '-body.txt');
-              msg.on('data', function(chunk) {
-                fileStream.write(chunk);
-              });
-              msg.on('end', function() {
-                fileStream.end();
-                console.log('Finished message no. ' + msg.seqno);
-              });
+    imap.fetch(results,
+      { headers: { parse: false },
+        body: true,
+        cb: function(fetch) {
+          fetch.on('message', function(msg) {
+            console.log('Got a message with sequence number ' + msg.seqno);
+            fileStream = fs.createWriteStream('msg-' + msg.seqno + '-body.txt');
+            msg.on('data', function(chunk) {
+              fileStream.write(chunk);
             });
-          }
-        }, function(err) {
+            msg.on('end', function() {
+              fileStream.end();
+              console.log('Finished message no. ' + msg.seqno);
+            });
+          });
         }
-      );
-    });
+      }, function(err) {
+      }
+    );
   });
+});
 ```
 
 
 API
 ===
 
-node-imap exposes one object: **ImapConnection**.
+require('imap') returns one object: **ImapConnection**.
 
 
 #### Data types
@@ -307,17 +308,21 @@ ImapConnection Events
 ImapConnection Properties
 -------------------------
 
-* **capabilities** - < _array_ > - Contains the IMAP capabilities of the server.
+* **connected** - _boolean_ - Are we connected?
 
-* **delimiter** - < _string_ > - The (top-level) mailbox hierarchy delimiter. If the server does not support mailbox hierarchies and only a flat list, this value will be `false`.
+* **authenticated** - _boolean_ - Are we authenticated?
 
-* **namespaces** - < _object_ > - Contains information about each namespace type (if supported by the server) with the following properties:
+* **capabilities** - _array_ - Contains the IMAP capabilities of the server.
 
-   * **personal** - < _array_ > - Mailboxes that belong to the logged in user.
+* **delimiter** - _string_ - The (top-level) mailbox hierarchy delimiter. If the server does not support mailbox hierarchies and only a flat list, this value will be `false`.
 
-   * **other** - < _array_ > - Mailboxes that belong to other users that the logged in user has access to.
+* **namespaces** - _object_ - Contains information about each namespace type (if supported by the server) with the following properties:
 
-   * **shared** - < _array_ > - Mailboxes that are accessible by any logged in user.
+   * **personal** - _array_ - Mailboxes that belong to the logged in user.
+
+   * **other** - _array_ - Mailboxes that belong to other users that the logged in user has access to.
+
+   * **shared** - _array_ - Mailboxes that are accessible by any logged in user.
    
    There should always be at least one entry (although the IMAP spec allows for more, it doesn't seem to be very common) in the personal namespace list, with a blank namespace prefix. Each property's array contains objects of the following format (with example values):
 
