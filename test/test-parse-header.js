@@ -20,6 +20,14 @@ var CRLF = '\r\n';
     expected: { subject: [ '¡Hola, señor!' ] },
     what: 'MIME encoded-word in value'
   },
+  { source: ['Subject: =?iso-8859-1*es?Q?=A1Hola,_se=F1or!?=', CRLF],
+    expected: { subject: [ '¡Hola, señor!' ] },
+    what: 'MIME encoded-word in value with language set (RFC2231)'
+  },
+  { source: ['Subject: =?iso-8859-1*?Q?=A1Hola,_se=F1or!?=', CRLF],
+    expected: { subject: [ '¡Hola, señor!' ] },
+    what: 'MIME encoded-word in value with empty language set'
+  },
   { source: ['Subject: =?GB2312?Q?=B2=E2=CA=D4=CC=E2=C4=BF=D3=EB=D6=D0=B9=FA=D0=C5_long_subjects_are_not_OK_12?=', CRLF,
              ' =?GB2312?Q?345678901234567890123456789012345678901234567890123456789012?=', CRLF,
              ' =?GB2312?Q?345678901234567890?=', CRLF],
@@ -37,6 +45,12 @@ var CRLF = '\r\n';
              ' =?GB2312?Q?345678901234567890?=', CRLF],
     expected: { subject: [ '测试题目与中国信 long subjects are not OK 12 345678901234567890123456789012345678901234567890123456789012345678901234567890' ] },
     what: 'Folded header value (one adjacent, one non-adjacent MIME encoded-words)'
+  },
+  { source: ['Subject: =?UTF-8?Q?=E0=B9=84=E0=B8=97=E0=B8=A2_=E0=B9=84?=', CRLF,
+             '   ', CRLF,
+             ' =?UTF-8?Q?=E0=B8=97=E0=B8=A2_=E0=B9=84=E0=B8=97?=  =?UTF-8?Q?=E0=B8=A2?=', CRLF],
+    expected: { subject: [ 'ไทย ไทย ไทย' ] },
+    what: 'Folded header value (adjacent MIME encoded-words seperated by linear whitespace)'
   },
   // header with body
   { source: ['Subject: test subject', CRLF,
